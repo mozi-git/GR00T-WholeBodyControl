@@ -41,7 +41,7 @@ BRANCH_MODE=false
 EXTRA_ARGS=()
 PROJECT_NAME="decoupled_wbc"
 PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
-REMOTE_IMAGE="nvgear/gr00t_wbc:latest"
+REMOTE_IMAGE="yuanli-ai-acr-registry.cn-shanghai.cr.aliyuncs.com/demo/locomotion:gr00t_wbc"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
