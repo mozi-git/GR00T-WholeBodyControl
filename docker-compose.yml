@@ -1,0 +1,43 @@
+services:
+  gr00t-sonic-dev:
+    image: yuanli-ai-acr-registry.cn-shanghai.cr.aliyuncs.com/demo/locomotion:sonic-trtsim
+    container_name: gr00t-sonic-dev
+
+    # GPU support
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility
+      - DISPLAY=${DISPLAY:-:0}
+
+    # Volume mounts
+    volumes:
+      # Mount entire repo for development
+      - "$PWD:/host_workspace"
+      # X11 display forwarding for GUI applications
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Xauthority for X11 authentication (optional)
+      - "$HOME/.Xauthority:$HOME/.Xauthority:rw"
+
+    # Network and IPC - match host for best performance
+    ipc: host
+    network_mode: host
+
+    # Interactive terminal
+    stdin_open: true
+    tty: true
+
+    # Resource limits
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Working directory
+    working_dir: /workspace
+
+    # Default command
+    command: /bin/bash
