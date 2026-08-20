@@ -211,6 +211,7 @@ show_usage() {
     echo "  --input-type TYPE       Set the input type (default: zmq_manager)"
     echo "  --output-type TYPE      Set the output type (default: ros2)"
     echo "  --zmq-host HOST         Set the ZMQ host (default: localhost)"
+    echo "  --zmq-port PORT         Set the ZMQ port (default: 5556)"
     echo ""
     echo "Interface modes:"
     echo "  sim              Use loopback interface for simulation (MuJoCo)"
@@ -242,6 +243,7 @@ MOTION_DATA_DEFAULT="reference/example/"
 INPUT_TYPE_DEFAULT="manager"
 OUTPUT_TYPE_DEFAULT="all"
 ZMQ_HOST_DEFAULT="localhost"
+ZMQ_PORT_DEFAULT="5556"
 
 # Initialize with defaults (will be set after parsing)
 CHECKPOINT="$CHECKPOINT_DEFAULT"
@@ -251,6 +253,7 @@ MOTION_DATA="$MOTION_DATA_DEFAULT"
 INPUT_TYPE="$INPUT_TYPE_DEFAULT"
 OUTPUT_TYPE="$OUTPUT_TYPE_DEFAULT"
 ZMQ_HOST="$ZMQ_HOST_DEFAULT"
+ZMQ_PORT="$ZMQ_PORT_DEFAULT"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -315,9 +318,26 @@ while [[ $# -gt 0 ]]; do
             ZMQ_HOST="$2"
             shift 2
             ;;
+        --zmq-port)
+            if [[ -z "$2" ]]; then
+                echo -e "${RED}Error: --zmq-port requires a port argument${NC}" >&2
+                exit 1
+            fi
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}Error: --zmq-port must be an integer${NC}" >&2
+                exit 1
+            fi
+            ZMQ_PORT="$2"
+            shift 2
+            ;;
         sim|real)
             INTERFACE_MODE="$1"
             shift
+            ;;
+        --*)
+            echo -e "${RED}Error: unknown option '$1'${NC}" >&2
+            show_usage
+            exit 1
             ;;
         *)
             # Could be interface name or IP
@@ -378,6 +398,8 @@ CHECKPOINT_ENCODER="${CHECKPOINT}_encoder.onnx"
 
 # ZMQ host (set via command line or default)
 # ZMQ_HOST is already set from argument parsing above
+# ZMQ port (set via command line or default)
+# ZMQ_PORT is already set from argument parsing above
 
 # Additional flags for simulation mode
 EXTRA_ARGS=""
@@ -515,6 +537,7 @@ echo -e "  Planner:            ${GREEN}$PLANNER${NC}"
 echo -e "  Input Type:         ${GREEN}$INPUT_TYPE${NC}"
 echo -e "  Output Type:        ${GREEN}$OUTPUT_TYPE${NC}"
 echo -e "  ZMQ Host:           ${GREEN}$ZMQ_HOST${NC}"
+echo -e "  ZMQ Port:           ${GREEN}$ZMQ_PORT${NC}"
 if [[ -n "$EXTRA_ARGS" ]]; then
 echo -e "  Extra Args:         ${GREEN}$EXTRA_ARGS${NC}"
 fi
@@ -529,7 +552,8 @@ echo -e "${BLUE}    --encoder-file $CHECKPOINT_ENCODER \\${NC}"
 echo -e "${BLUE}    --planner-file $PLANNER \\${NC}"
 echo -e "${BLUE}    --input-type $INPUT_TYPE \\${NC}"
 echo -e "${BLUE}    --output-type $OUTPUT_TYPE \\${NC}"
-echo -e "${BLUE}    --zmq-host $ZMQ_HOST${NC}"
+echo -e "${BLUE}    --zmq-host $ZMQ_HOST \\${NC}"
+echo -e "${BLUE}    --zmq-port $ZMQ_PORT${NC}"
 if [[ -n "$EXTRA_ARGS" ]]; then
 echo -e "${BLUE}    $EXTRA_ARGS${NC}"
 fi
@@ -560,6 +584,7 @@ if [[ "$confirm" =~ ^[Yy]$ ]] || [[ -z "$confirm" ]]; then
             --input-type "$INPUT_TYPE" \
             --output-type "$OUTPUT_TYPE" \
             --zmq-host "$ZMQ_HOST" \
+            --zmq-port "$ZMQ_PORT" \
             $EXTRA_ARGS
     else
         just run g1_deploy_onnx_ref "$TARGET" "$CHECKPOINT_DECODER" "$MOTION_DATA" \
@@ -568,7 +593,8 @@ if [[ "$confirm" =~ ^[Yy]$ ]] || [[ -z "$confirm" ]]; then
             --planner-file "$PLANNER" \
             --input-type "$INPUT_TYPE" \
             --output-type "$OUTPUT_TYPE" \
-            --zmq-host "$ZMQ_HOST"
+            --zmq-host "$ZMQ_HOST" \
+            --zmq-port "$ZMQ_PORT"
     fi
 else
     echo ""

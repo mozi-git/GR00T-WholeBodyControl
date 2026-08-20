@@ -365,9 +365,9 @@ def run_vr3pt_live_visualizer():
     # Initialize XRT
     subprocess.Popen(["bash", "/opt/apps/roboticsservice/runService.sh"])
     xrt.init()
-    print("Waiting for body tracking data...")
+    print("Waiting for body tracking data...", flush=True)
     while not xrt.is_body_data_available():
-        print("waiting for body data...")
+        print("waiting for body data...", flush=True)
         time.sleep(1)
 
     print("Body data available! Capturing VR 3-point pose...")
@@ -415,9 +415,9 @@ def run_vr3pt_realtime_visualizer(update_hz: int = 10):
     # Initialize XRT
     subprocess.Popen(["bash", "/opt/apps/roboticsservice/runService.sh"])
     xrt.init()
-    print("Waiting for body tracking data...")
+    print("Waiting for body tracking data...", flush=True)
     while not xrt.is_body_data_available():
-        print("waiting for body data...")
+        print("waiting for body data...", flush=True)
         time.sleep(1)
 
     print("Body data available! Starting real-time visualization...")
@@ -1573,9 +1573,9 @@ def _init_input_source(
     if input_source == "isaac-teleop":
         reader = input_readers.IsaacTeleopReader(max_queue_size=buffer_size)
         reader.start()
-        print("Using Isaac Teleop (in-process CloudXR / DeviceIO), waiting for data...")
+        print("Using Isaac Teleop (in-process CloudXR / DeviceIO), waiting for data...", flush=True)
         while reader.get_latest() is None:
-            print("waiting for Isaac Teleop body data (connect the headset to CloudXR)...")
+            print("waiting for Isaac Teleop body data (connect the headset to CloudXR)...", flush=True)
             time.sleep(1)
         return reader
 
@@ -1586,9 +1586,9 @@ def _init_input_source(
 
     subprocess.Popen(["bash", "/opt/apps/roboticsservice/runService.sh"])
     xrt.init()
-    print("Waiting for body tracking data...")
+    print("Waiting for body tracking data...", flush=True)
     while not xrt.is_body_data_available():
-        print("waiting for body data...")
+        print("waiting for body data...", flush=True)
         time.sleep(1)
 
     reader = PicoReader(max_queue_size=buffer_size)
@@ -1919,6 +1919,7 @@ def run_pico_manager(
       A+X: Toggle between planner and pose mode
       A+B+X+Y: Toggle policy start/stop
     """
+    print("[Manager] Initializing...")
     reader = _init_input_source(input_source, buffer_size)
 
     context = zmq.Context()
@@ -1934,7 +1935,7 @@ def run_pico_manager(
             print(f"  {mode.value}: {mode.name}")
     except Exception:
         pass
-
+    print("[Manager] three_point:")
     three_point = ThreePointPose(
         enable_vis_vr3pt=enable_vis_vr3pt,
         with_g1_robot=with_g1_robot,
@@ -1942,7 +1943,7 @@ def run_pico_manager(
         enable_smpl_vis=enable_smpl_vis,
         log_prefix="PoseLoop",
     )
-
+    print("[Manager] pose_streamer:")
     pose_streamer = PoseStreamer(
         socket=socket,
         reader=reader,
@@ -1954,6 +1955,7 @@ def run_pico_manager(
         record_format=record_format,
         log_prefix="PoseLoop",
     )
+    print("[Manager] planner_streamer:")
     planner_streamer = PlannerStreamer(
         socket=socket,
         reader=reader,
@@ -1962,6 +1964,8 @@ def run_pico_manager(
         zmq_feedback_host=zmq_feedback_host,
         zmq_feedback_port=zmq_feedback_port,
     )
+
+    print("[Manager] All streamers and controllers initialized")
 
     # State machine diagram:
     #
@@ -1993,6 +1997,7 @@ def run_pico_manager(
         while True:
             # Poll Pico controller for buttons/axes
             a_pressed, b_pressed, x_pressed, y_pressed = get_abxy_buttons(reader)
+            print(f"[Manager] A:{a_pressed} B:{b_pressed} X:{x_pressed} Y:{y_pressed}")
 
             left_menu_button, _, _, left_grip_mgr, _ = get_controller_inputs(reader)
 
@@ -2008,16 +2013,23 @@ def run_pico_manager(
             start_combo = (a_pressed) and (b_pressed) and (x_pressed) and (y_pressed)
 
             new_mode = current_mode
+            print(f"[Manager] Current mode: {current_mode}")
             if current_mode == StreamMode.OFF:
                 if start_combo and not prev_start_combo:
+                    print("[Manager] A+B+X+Y pressed: toggle policy start/stop")
                     new_mode = StreamMode.PLANNER
                     # Calibrate VR 3pt tracking NOW: operator should be in zero-ref pose.
                     # Uses the current Pico SMPL frame + FK of all-zero body joints.
-                    sample = reader.get_latest()
-                    if sample is not None:
-                        three_point.calibrate_now(sample["body_poses_np"])
-                    else:
-                        print("[Manager] WARNING: No SMPL data available for calibration")
+                    try:
+                        sample = reader.get_latest()
+                        if sample is not None:
+                            three_point.calibrate_now(sample["body_poses_np"])
+                        else:
+                            print("[Manager] WARNING: No SMPL data available for calibration")
+                    except Exception as e:
+                        print(f"[Manager] ERROR during calibration: {e}")
+                        import traceback
+                        traceback.print_exc()
 
             elif current_mode == StreamMode.PLANNER:
                 # Chain 2: POSE <--(ax)--> PLANNER <--(left_axis_click)--> VR_3PT
