@@ -10,6 +10,18 @@ RUN if ! command -v uv &> /dev/null; then \
         curl -LsSf https://astral.sh/uv/install.sh | sh; \
     fi
 
+# Install XRoboToolkit PC Service (roboticsservice)
+# This is required for PICO body tracking data streaming
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        wget -q https://github.com/XR-Robotics/XRoboToolkit-PC-Service/releases/download/v1.0.0/XRoboToolkit_PC_Service_1.0.0_ubuntu_22.04_amd64.deb -O /tmp/roboticsservice.deb; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        cp /workspace/gear_sonic_deploy/thirdparty/roboticsservice_1.0.0.0_arm64.deb /tmp/roboticsservice.deb; \
+    fi && \
+    dpkg -i /tmp/roboticsservice.deb || apt-get install -f -y && \
+    rm /tmp/roboticsservice.deb
+
+
 # Install cmake + pybind11 for XRoboToolkit SDK build
 RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python cmake pybind11 setuptools
 
