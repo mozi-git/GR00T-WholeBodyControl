@@ -1,49 +1,141 @@
-FROM yuanli-ai-acr-registry.cn-shanghai.cr.aliyuncs.com/demo/locomotion:sonic-teleop
+# Dockerfile for GR00T Pico VR Teleop
+# Based on install_pico.sh - Sets up the gear_sonic_teleop environment
+#
+# Build:
+#   docker build -f Dockerfile.pico -t gr00t-pico:latest .
+#
+# Run:
+#   docker run -it --rm gr00t-pico:latest bash
+#   # or run the pico manager script:
+#   docker run -it --rm gr00t-pico:latest python gear_sonic/scripts/pico_manager_thread_server.py --manager --vis_vr3pt
 
-# Accept build argument for username
-ARG USERNAME=root
-ARG USERID=0
-ARG HOME_DIR=/root
+FROM ubuntu:22.04
 
-# Install uv if not already present
-RUN if ! command -v uv &> /dev/null; then \
-        curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    fi
+# Prevent interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
-# Install XRoboToolkit PC Service (roboticsservice)
-# This is required for PICO body tracking data streaming
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        wget -q https://github.com/XR-Robotics/XRoboToolkit-PC-Service/releases/download/v1.0.0/XRoboToolkit_PC_Service_1.0.0_ubuntu_22.04_amd64.deb -O /tmp/roboticsservice.deb; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        cp /workspace/gear_sonic_deploy/thirdparty/roboticsservice_1.0.0.0_arm64.deb /tmp/roboticsservice.deb; \
-    fi && \
-    dpkg -i /tmp/roboticsservice.deb || apt-get install -f -y && \
-    rm /tmp/roboticsservice.deb
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    python3 \
+    python3-dev \
+    python3-venv \
+    pkg-config \
+    libssl-dev \
+    libffi-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libglfw3-dev \
+    libx11-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxi-dev \
+    libxxf86vm-dev \
+    qt6-base-dev \
+    libgl1-mesa-dev \
+    && rm -rf /var/lib/apt/lists/*
 
+# Set UTF-8 locale (fixes Qt warning)
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
 
-# Install cmake + pybind11 for XRoboToolkit SDK build
-RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python cmake pybind11 setuptools
+WORKDIR /workspace
+
+# Copy repository
+COPY . /workspace/
+
+# Install uv (Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH="/root/.local/bin:$PATH" && \
+    echo "export PATH=\"/root/.local/bin:\$PATH\"" >> /root/.bashrc
+
+ENV PATH="/root/.local/bin:$PATH"
+
+# Install uv-managed Python 3.10 and setup virtual environment
+RUN uv python install 3.10 && \
+    MANAGED_PY=$(uv python find --no-project 3.10) && \
+    echo "Using Python: $MANAGED_PY" && \
+    uv venv /workspace/.venv_teleop --python "$MANAGED_PY" --prompt gear_sonic_teleop
+
+# Activate venv for subsequent RUN commands
+ENV VIRTUAL_ENV=/workspace/.venv_teleop
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Install Python dependencies
+RUN uv pip install cmake pybind11 setuptools
 
 # Set CMAKE_PREFIX_PATH for pybind11
-ENV CMAKE_PREFIX_PATH=${HOME_DIR}/.venv_teleop/lib/python3.10/site-packages/pybind11/share/cmake/pybind11
+RUN python -m pybind11 --cmakedir > /tmp/pybind11_dir.txt && \
+    export CMAKE_PREFIX_PATH=$(cat /tmp/pybind11_dir.txt) && \
+    echo "export CMAKE_PREFIX_PATH=$(cat /tmp/pybind11_dir.txt)" >> /root/.bashrc
 
-# Install XRoboToolkit SDK (CMake-based Python bindings)
-RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python --no-build-isolation \
-    -e /workspace/external_dependencies/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64/
+# Install XRoboToolkit SDK
+RUN uv pip install --no-build-isolation -e external_dependencies/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64/
 
-# Install isaacteleop[cloudxr] for CloudXR / DeviceIO path
-RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python 'isaacteleop[cloudxr]~=1.3.0' --prerelease=allow \
-    --extra-index-url https://pypi.nvidia.com
+# Install gear_sonic[teleop]
+RUN uv pip install -e "gear_sonic[teleop]"
 
-# Seed ~/cloudxr.env with the device profile
-RUN echo "NV_DEVICE_PROFILE=Quest3" > ${HOME_DIR}/cloudxr.env
+# Install isaacteleop[cloudxr] for CloudXR / DeviceIO support
+RUN uv pip install 'isaacteleop[cloudxr]~=1.3.0' --prerelease=allow \
+    --extra-index-url https://pypi.nvidia.com || true
 
-# Add activation of venv_teleop to bashrc for convenience
-RUN echo "" >> ${HOME_DIR}/.bashrc && \
-    echo "# Virtual environment for teleop" >> ${HOME_DIR}/.bashrc && \
-    echo "export VENV_TELEOP=${HOME_DIR}/.venv_teleop" >> ${HOME_DIR}/.bashrc && \
-    echo "# To activate teleop venv, run: source \$VENV_TELEOP/bin/activate" >> ${HOME_DIR}/.bashrc
+# Install sim extra and unitree_sdk2_python (unless you want to skip these)
+# Comment out if you want a minimal image without sim dependencies
+RUN uv pip install -e "gear_sonic[sim]" && \
+    uv pip install -e external_dependencies/unitree_sdk2_python
 
-# Default command (can be overridden at runtime)
-CMD ["/bin/bash"]
+# Setup CloudXR device profile
+RUN echo "NV_DEVICE_PROFILE=Quest3" > /root/cloudxr.env && \
+    echo "[OK] Configured CloudXR profile"
+
+# Create startup script
+RUN cat > /startup.sh <<- 'EOF'
+#!/bin/bash
+set -e
+
+# Activate venv
+source /workspace/.venv_teleop/bin/activate
+
+# Set environment variables
+export CMAKE_PREFIX_PATH=$(python -m pybind11 --cmakedir)
+
+echo "============================================================"
+echo "GR00T Pico VR Teleop Environment Ready"
+echo "============================================================"
+echo "Python: $(python --version)"
+echo "Location: /workspace"
+echo ""
+echo "Quick start commands:"
+echo "  # Run pico manager (interactive)"
+echo "  python gear_sonic/scripts/pico_manager_thread_server.py --manager --vis_vr3pt"
+echo ""
+echo "  # Test XRT connection"
+echo "  python << 'PYEOF'"
+echo "import xrobotoolkit_sdk as xrt"
+echo "xrt.init()"
+echo "print('XRT initialized successfully')"
+echo "PYEOF"
+echo ""
+echo "============================================================"
+
+# Run the command passed to docker run, or bash if none
+if [ $# -eq 0 ]; then
+    exec bash
+else
+    exec "$@"
+fi
+EOF
+chmod +x /startup.sh
+
+# Set entrypoint
+ENTRYPOINT ["/startup.sh"]
+
+# Default command (can be overridden)
+CMD ["bash"]
