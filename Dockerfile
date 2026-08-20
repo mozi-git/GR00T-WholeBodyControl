@@ -1,4 +1,4 @@
-FROM yuanli-ai-acr-registry.cn-shanghai.cr.aliyuncs.com/demo/locomotion:sonic-trtsim
+FROM yuanli-ai-acr-registry.cn-shanghai.cr.aliyuncs.com/demo/locomotion:sonic-teleop
 
 # Accept build argument for username
 ARG USERNAME=root
@@ -10,19 +10,22 @@ RUN if ! command -v uv &> /dev/null; then \
         curl -LsSf https://astral.sh/uv/install.sh | sh; \
     fi
 
-# Create .venv_teleop directory
-RUN mkdir -p ${HOME_DIR}/.venv_teleop
+# Install cmake + pybind11 for XRoboToolkit SDK build
+RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python cmake pybind11 setuptools
 
-# Create venv_teleop using uv
-RUN uv venv --python 3.10 ${HOME_DIR}/.venv_teleop
+# Set CMAKE_PREFIX_PATH for pybind11
+ENV CMAKE_PREFIX_PATH=${HOME_DIR}/.venv_teleop/lib/python3.10/site-packages/pybind11/share/cmake/pybind11
 
-# Install gear_sonic[teleop] dependencies
-# Using uv pip with --python to target the specific venv
-RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python pyzmq msgpack msgpack-numpy pin pyvista
+# Install XRoboToolkit SDK (CMake-based Python bindings)
+RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python --no-build-isolation \
+    -e /workspace/external_dependencies/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64/
 
-# Install gear_sonic[teleop] from the workspace
-# Note: Base image (sonic-trtsim) already has project code at /workspace
-RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python -e /workspace/gear_sonic[teleop]
+# Install isaacteleop[cloudxr] for CloudXR / DeviceIO path
+RUN uv pip install --python ${HOME_DIR}/.venv_teleop/bin/python 'isaacteleop[cloudxr]~=1.3.0' --prerelease=allow \
+    --extra-index-url https://pypi.nvidia.com
+
+# Seed ~/cloudxr.env with the device profile
+RUN echo "NV_DEVICE_PROFILE=Quest3" > ${HOME_DIR}/cloudxr.env
 
 # Add activation of venv_teleop to bashrc for convenience
 RUN echo "" >> ${HOME_DIR}/.bashrc && \
